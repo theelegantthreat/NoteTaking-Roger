@@ -1,0 +1,6 @@
+{
+  "name": "NoteTaking Roger",
+  "description": "Powerful developer note taking app with offline Room database, thematic interfaces, and Git-sync architecture.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

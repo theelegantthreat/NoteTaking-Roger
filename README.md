@@ -79,7 +79,7 @@ General workflow:
 
 ## License
 
-Add a license file to this repository (for example, `LICENSE` or `LICENSE.md`) and update this section with the license name (MIT, Apache-2.0, etc.).
+This project is licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later). See the [LICENSE](./LICENSE) file for details.
 
 ## Contact
 

@@ -74,7 +74,9 @@ Please include tests and update documentation where appropriate.
 
 ## License
 
-If you have a preferred license, add it here (e.g., MIT). If not, consider adding an OSI-approved license such as MIT, Apache 2.0, or GPL-3.0.
+This project is licensed under the GNU General Public License v3.0 or later ("GPL-3.0-or-later"). See the [LICENSE](LICENSE) file for the full license text.
+
+SPDX: GPL-3.0-or-later
 
 ## Contact
 

@@ -1,5 +1,7 @@
 # Roger — NoteTaking
 
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
+
 Roger is a lightweight note-taking application / starter project for managing personal notes. It provides a simple structure for creating, editing, organizing, and searching notes. This repository contains the source code and tools to run Roger locally and to contribute improvements.
 
 > NOTE: I don't have additional repository-specific details (such as the framework or language stack) from the repo metadata, so this README provides a general, easy-to-adapt guide. If you want a README tailored to the project's actual stack (React, Next.js, Electron, Python, etc.), tell me which stack or point me to the main files and I will update the README.

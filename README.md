@@ -86,8 +86,4 @@ Maintainer: theelegantthreat
 
 ---
 
-If you'd like, I can:
 
-- Update this README with exact install/run steps after looking at the repo's package.json, requirements.txt, or other manifest files.
-- Add badges (build, license, coverage) if you tell me the CI/tooling used.
-- Create a LICENSE file.

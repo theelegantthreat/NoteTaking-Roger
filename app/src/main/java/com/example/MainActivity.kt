@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -718,7 +719,7 @@ fun SearchAndSortRow(
                     )
                 ) {
                     Icon(
-                        imageVector = Icons.Default.List,
+                        imageVector = Icons.AutoMirrored.Filled.List,
                         contentDescription = "Sort order option select",
                         tint = themeConfig.textSecondary
                     )
@@ -2562,7 +2563,7 @@ fun NoteContentEditor(
                         .testTag("undo_btn")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Undo,
+                        imageVector = Icons.AutoMirrored.Filled.Undo,
                         contentDescription = "Undo",
                         tint = if (undoStack.isNotEmpty()) {
                             if (themeKey == "puppy") Color.Black else themeConfig.accent
@@ -2595,7 +2596,7 @@ fun NoteContentEditor(
                         .testTag("redo_btn")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Redo,
+                        imageVector = Icons.AutoMirrored.Filled.Redo,
                         contentDescription = "Redo",
                         tint = if (redoStack.isNotEmpty()) {
                             if (themeKey == "puppy") Color.Black else themeConfig.accent
@@ -2767,7 +2768,7 @@ fun NoteContentEditor(
                     RichFormattingButton(icon = Icons.Default.TaskAlt, textLabel = "Todo", tooltip = "Todo Task", themeConfig = themeConfig, themeKey = themeKey) {
                         applyFormatting("list_todo")
                     }
-                    RichFormattingButton(icon = Icons.Default.FormatListBulleted, textLabel = "Bullet", tooltip = "Bullet List", themeConfig = themeConfig, themeKey = themeKey) {
+                    RichFormattingButton(icon = Icons.AutoMirrored.Filled.FormatListBulleted, textLabel = "Bullet", tooltip = "Bullet List", themeConfig = themeConfig, themeKey = themeKey) {
                         applyFormatting("list_bullet")
                     }
                     RichFormattingButton(icon = Icons.Default.TableChart, textLabel = "Table", tooltip = "Markdown Table", themeConfig = themeConfig, themeKey = themeKey) {
@@ -3951,7 +3952,7 @@ fun GitHubSyncDialog(
                     }
                 }
 
-                Divider(color = themeConfig.border.copy(alpha = 0.4f))
+                HorizontalDivider(color = themeConfig.border.copy(alpha = 0.4f))
 
                 // 6. Push & Pull Main Action controls
                 Row(
@@ -4222,7 +4223,7 @@ fun BackupDialog(
                     Text("Copy Backup Payload to Clipboard", fontFamily = themeConfig.fontFamily, fontSize = 11.sp, color = themeConfig.textPrimary)
                 }
 
-                Divider(color = themeConfig.border)
+                HorizontalDivider(color = themeConfig.border)
 
                 // IMPORT SEGMENT
                 Text(
@@ -4346,7 +4347,7 @@ fun RealtimeStatsPanel(
                 .background(themeConfig.border.copy(alpha = 0.4f))
         )
         StatItem(
-            icon = Icons.Default.Subject,
+            icon = Icons.AutoMirrored.Filled.Subject,
             value = "$paragraphCount",
             label = "paragraphs",
             themeConfig = themeConfig,

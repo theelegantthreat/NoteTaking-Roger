@@ -7,7 +7,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
 import com.example.data.AppBackupPayload
-import com.example.data.Folder
 import com.example.data.Note
 import com.example.data.NoteRepository
 import com.example.git.GitHubSyncManager
@@ -22,14 +21,13 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val sharedPrefs = application.getSharedPreferences("NoteTakingRogerPrefs", Context.MODE_PRIVATE)
     private val database = AppDatabase.getDatabase(application)
-    private val repository = NoteRepository(database.noteDao(), database.folderDao())
+    private val repository = NoteRepository(database.noteDao())
     private val gitHubSyncManager = GitHubSyncManager()
 
     // Preferences properties
@@ -44,7 +42,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val searchQuery = MutableStateFlow("")
     val activeTags = MutableStateFlow<Set<String>>(emptySet())
     val sortOrder = MutableStateFlow("title-asc") // title-asc, title-desc, newest, oldest
-    val activeFolder = MutableStateFlow("All") // "All" or folder name
 
     // Active Note being edited
     val activeNoteId = MutableStateFlow<Long?>(null)
@@ -64,34 +61,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         emptyList()
     )
 
-    // Folders Flow
-    val allFolders: StateFlow<List<Folder>> = repository.allFoldersFlow.map { dbFolders ->
-        if (dbFolders.isEmpty()) {
-            val defaults = listOf(
-                Folder(id = "general", name = "General", color = "#4A90E2", icon = "folder"),
-                Folder(id = "journal", name = "Daily Journal", color = "#50E3C2", icon = "book"),
-                Folder(id = "work", name = "Work", color = "#F5A623", icon = "work"),
-                Folder(id = "personal", name = "Personal", color = "#BD10E0", icon = "person")
-            )
-            viewModelScope.launch(Dispatchers.IO) {
-                repository.insertFolders(defaults)
-            }
-            defaults
-        } else {
-            dbFolders
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    // Distinct list of all available folder names (from database folders and note properties)
-    val allFolderNames: StateFlow<List<String>> = combine(allFolders, _rawNotes) { folders, notes ->
-        val names = (folders.map { it.name } + notes.map { it.folder.ifEmpty { "General" } }).distinct()
-        if (names.isEmpty()) listOf("General") else names.sorted()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("General"))
-
-    // Sorted and Filtered Notes Flow (incorporating Folder filter)
+    // Sorted and Filtered Notes Flow
     val filteredNotes: StateFlow<List<Note>> = combine(
-        _rawNotes, searchQuery, activeTags, sortOrder, activeFolder
-    ) { notes, search, selectedTags, sort, folderFilter ->
+        _rawNotes, searchQuery, activeTags, sortOrder
+    ) { notes, search, selectedTags, sort ->
         var result = if (notes.isEmpty()) {
             // Initiate default/starter note if empty
             val starterNotes = createStarterNote()
@@ -100,22 +73,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             notes
         }
 
-        // Apply Folder filter
-        if (folderFilter != "All" && folderFilter.isNotEmpty()) {
-            result = result.filter { note ->
-                val noteFolder = note.folder.ifEmpty { "General" }
-                noteFolder.equals(folderFilter, ignoreCase = true)
-            }
-        }
-
         // Apply Search
         if (search.isNotEmpty()) {
             val query = search.lowercase(Locale.getDefault())
             result = result.filter { note ->
                 note.title.lowercase(Locale.getDefault()).contains(query) ||
                         note.content.lowercase(Locale.getDefault()).contains(query) ||
-                        note.tags.any { it.lowercase(Locale.getDefault()).contains(query) } ||
-                        note.folder.lowercase(Locale.getDefault()).contains(query)
+                        note.tags.any { it.lowercase(Locale.getDefault()).contains(query) }
             }
         }
 
@@ -156,8 +120,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 content = "Welcome to NoteTaking Roger!\n\nThis app is optimized for managing development documentation on the go, with complete offline Room Database support and real-time GitHub repository updates using Personal Access Tokens (PAT).\n\nFeel free to explore the visual theme selections in the settings bar above (including Occult, Retro Terminal, Puppy Linux, google Keep styles and XFCE desktops) which restructure the components matching developer aesthetics.\n\nHappy Coding!\nRoger",
                 tags = listOf("dev", "documentation", "alchemy"),
                 created = getFormattedDate(),
-                updated = getFormattedDate(),
-                folder = "General"
+                updated = getFormattedDate()
             )
             repository.insertNote(starter)
         }
@@ -168,15 +131,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun createNewNote() {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            val targetFolder = if (activeFolder.value != "All" && activeFolder.value.isNotEmpty()) activeFolder.value else "General"
             val newNote = Note(
                 id = now,
                 title = "",
                 content = "",
                 tags = emptyList(),
                 created = getFormattedDate(),
-                updated = getFormattedDate(),
-                folder = targetFolder
+                updated = getFormattedDate()
             )
             repository.insertNote(newNote)
             withContext(Dispatchers.Main) {
@@ -211,25 +172,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 |- [ ] Task 2: 
                 |- [ ] Task 3: 
             """.trimMargin()
-            val targetFolder = if (activeFolder.value != "All") activeFolder.value else "Daily Journal"
             val newNote = Note(
                 id = now,
                 title = title,
                 content = content,
                 tags = listOf("daily", "dream", "journal"),
                 created = getFormattedDate(),
-                updated = getFormattedDate(),
-                folder = targetFolder
+                updated = getFormattedDate()
             )
             repository.insertNote(newNote)
-            // Ensure Daily Journal folder exists in folders table
-            val existingFolder = repository.allFoldersFlow.first().find { it.name.equals("Daily Journal", ignoreCase = true) }
-            if (existingFolder == null) {
-                repository.insertFolder(Folder(id = "journal", name = "Daily Journal", color = "#50E3C2", icon = "book"))
-            }
             withContext(Dispatchers.Main) {
                 activeNoteId.value = now
-                Toast.makeText(getApplication(), "Daily Journal created successfully in '$targetFolder'!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(getApplication(), "Daily Journal created successfully!", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -264,8 +218,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 content = note.content,
                 tags = note.tags,
                 created = getFormattedDate(),
-                updated = getFormattedDate(),
-                folder = note.folder
+                updated = getFormattedDate()
             )
             repository.insertNote(copy)
             withContext(Dispatchers.Main) {
@@ -274,7 +227,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateActiveNote(title: String, content: String, tagsCommaSeparated: String, folder: String? = null) {
+    fun updateActiveNote(title: String, content: String, tagsCommaSeparated: String) {
         val currentId = activeNoteId.value ?: return
         val currentNote = activeNote.value ?: return
         
@@ -283,12 +236,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .filter { it.isNotEmpty() }
 
         viewModelScope.launch(Dispatchers.IO) {
-            val targetFolder = folder ?: currentNote.folder.ifEmpty { "General" }
             val updatedNote = currentNote.copy(
                 title = title,
                 content = content,
                 tags = tagsList,
-                folder = targetFolder,
                 updated = getFormattedDate()
             )
             repository.insertNote(updatedNote)
@@ -308,92 +259,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ==========================================
-    // FOLDER MANAGEMENT ACTIONS
-    // ==========================================
-
-    fun selectFolder(folderName: String) {
-        activeFolder.value = folderName
-    }
-
-    fun createFolder(name: String) {
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) return
-        viewModelScope.launch(Dispatchers.IO) {
-            val existing = allFolders.value.find { it.name.equals(trimmed, ignoreCase = true) }
-            if (existing != null) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(getApplication(), "Folder '$trimmed' already exists.", Toast.LENGTH_SHORT).show()
-                }
-                return@launch
-            }
-            val newFolder = Folder(
-                id = UUID.randomUUID().toString(),
-                name = trimmed,
-                color = "#4A90E2",
-                icon = "folder"
-            )
-            repository.insertFolder(newFolder)
-            withContext(Dispatchers.Main) {
-                activeFolder.value = trimmed
-                Toast.makeText(getApplication(), "Folder '$trimmed' created!", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    fun renameFolder(oldName: String, newName: String) {
-        val trimmed = newName.trim()
-        if (trimmed.isEmpty() || oldName == trimmed) return
-        viewModelScope.launch(Dispatchers.IO) {
-            val folder = allFolders.value.find { it.name.equals(oldName, ignoreCase = true) }
-            val folderId = folder?.id ?: UUID.randomUUID().toString()
-            repository.renameFolder(folderId, oldName, trimmed)
-            withContext(Dispatchers.Main) {
-                if (activeFolder.value == oldName) {
-                    activeFolder.value = trimmed
-                }
-                Toast.makeText(getApplication(), "Renamed folder to '$trimmed'", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    fun deleteFolder(folderName: String) {
-        if (folderName.equals("General", ignoreCase = true)) {
-            Toast.makeText(getApplication(), "Cannot delete the default General folder.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            val folder = allFolders.value.find { it.name.equals(folderName, ignoreCase = true) }
-            if (folder != null) {
-                repository.deleteFolder(folder.id, folderName)
-            } else {
-                // Also reset notes in this folder even if folder entity wasn't stored
-                repository.deleteFolder("", folderName)
-            }
-            withContext(Dispatchers.Main) {
-                if (activeFolder.value == folderName) {
-                    activeFolder.value = "All"
-                }
-                Toast.makeText(getApplication(), "Deleted folder '$folderName'. Notes moved to General.", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    fun moveNoteToFolder(noteId: Long, targetFolder: String) {
-        val trimmed = targetFolder.trim().ifEmpty { "General" }
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.moveNoteToFolder(noteId, trimmed)
-            // Ensure folder exists in folder table
-            val exists = allFolders.value.any { it.name.equals(trimmed, ignoreCase = true) }
-            if (!exists && trimmed != "General") {
-                repository.insertFolder(Folder(id = UUID.randomUUID().toString(), name = trimmed))
-            }
-            withContext(Dispatchers.Main) {
-                Toast.makeText(getApplication(), "Moved note to '$trimmed'", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     // Tag Management
     fun selectTag(tag: String) {
         val current = activeTags.value
@@ -406,7 +271,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearFilters() {
         activeTags.value = emptySet()
-        activeFolder.value = "All"
         searchQuery.value = ""
     }
 
@@ -555,15 +419,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             result.onSuccess { pulledNotes ->
                 withContext(Dispatchers.IO) {
                     repository.insertNotes(pulledNotes)
-                    // Auto-insert any newly encountered folders
-                    val distinctFolders = pulledNotes.map { it.folder.ifEmpty { "General" } }.distinct()
-                    val existingFolderNames = allFolders.value.map { it.name }
-                    val newFolderEntities = distinctFolders
-                        .filter { !existingFolderNames.contains(it) }
-                        .map { Folder(id = UUID.randomUUID().toString(), name = it) }
-                    if (newFolderEntities.isNotEmpty()) {
-                        repository.insertFolders(newFolderEntities)
-                    }
                 }
                 ghStatus.value = "Pulled & Merged successfully!"
             }.onFailure { err ->
@@ -577,14 +432,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return try {
             val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
             var importedNotes: List<Note>? = null
-            var importedFolders: List<Folder>? = null
 
             try {
                 val payloadAdapter = moshi.adapter(AppBackupPayload::class.java)
                 val payload = payloadAdapter.fromJson(jsonString)
                 if (payload != null) {
                     importedNotes = payload.notes
-                    importedFolders = payload.folders
                     payload.activeTheme.let { theme ->
                         if (theme.isNotEmpty()) {
                             changeTheme(theme)
@@ -617,19 +470,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             viewModelScope.launch(Dispatchers.IO) {
                 repository.insertNotes(importedNotes)
-                if (!importedFolders.isNullOrEmpty()) {
-                    repository.insertFolders(importedFolders)
-                } else {
-                    // Extract folders from notes
-                    val distinctFolders = importedNotes.map { it.folder.ifEmpty { "General" } }.distinct()
-                    val existingFolderNames = allFolders.value.map { it.name }
-                    val newFolderEntities = distinctFolders
-                        .filter { !existingFolderNames.contains(it) }
-                        .map { Folder(id = UUID.randomUUID().toString(), name = it) }
-                    if (newFolderEntities.isNotEmpty()) {
-                        repository.insertFolders(newFolderEntities)
-                    }
-                }
             }
             true
         } catch (e: Exception) {
@@ -642,7 +482,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
             val adapter = moshi.adapter(AppBackupPayload::class.java)
             val notesToExport = if (allNotesState.value.isNotEmpty()) allNotesState.value else filteredNotes.value
-            val foldersToExport = allFolders.value
             val payload = AppBackupPayload(
                 version = 2,
                 exportedAt = System.currentTimeMillis(),
@@ -650,7 +489,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ghToken = ghTokenState.value,
                 ghRepo = ghRepoState.value,
                 ghPath = ghPathState.value,
-                folders = foldersToExport,
                 notes = notesToExport
             )
             adapter.toJson(payload)

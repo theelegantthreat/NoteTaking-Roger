@@ -15,16 +15,27 @@ data class Note(
     val updated: String,
     val timestamp: Long = System.currentTimeMillis(),
     val gitSyncStatus: String = "NOT_SYNCED",
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val folder: String = "General"
+)
+
+@Entity(tableName = "folders")
+data class Folder(
+    @PrimaryKey val id: String,
+    val name: String,
+    val color: String = "#808080",
+    val icon: String = "folder",
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 data class AppBackupPayload(
-    val version: Int = 1,
+    val version: Int = 2,
     val exportedAt: Long = System.currentTimeMillis(),
     val activeTheme: String = "roger",
     val ghToken: String = "",
     val ghRepo: String = "",
     val ghPath: String = "notes.json",
+    val folders: List<Folder> = emptyList(),
     val notes: List<Note> = emptyList()
 )
 

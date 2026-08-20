@@ -49,6 +49,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.data.Folder
 import com.example.data.Note
 import com.example.ui.MainViewModel
 import com.example.ui.theme.NotesTheme
@@ -142,6 +143,7 @@ fun NoteTakingRogerApp(
 ) {
     val context = LocalContext.current
     val notes by viewModel.filteredNotes.collectAsStateWithLifecycle()
+    val allNotes by viewModel.allNotesState.collectAsStateWithLifecycle()
     val tags by viewModel.allTags.collectAsStateWithLifecycle()
     val selectedTags by viewModel.activeTags.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -150,10 +152,18 @@ fun NoteTakingRogerApp(
     val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
     val ghStatus by viewModel.ghStatus.collectAsStateWithLifecycle()
 
+    // Folder flows
+    val activeFolder by viewModel.activeFolder.collectAsStateWithLifecycle()
+    val allFolders by viewModel.allFolders.collectAsStateWithLifecycle()
+    val allFolderNames by viewModel.allFolderNames.collectAsStateWithLifecycle()
+
     // Dialog flags
     var showGitHubDialog by remember { mutableStateOf(false) }
     var showTagDialog by remember { mutableStateOf(false) }
     var showBackupDialog by remember { mutableStateOf(false) }
+    var showCreateFolderDialog by remember { mutableStateOf(false) }
+    var folderToRename by remember { mutableStateOf<String?>(null) }
+    var noteToMove by remember { mutableStateOf<Note?>(null) }
 
     Scaffold(
         modifier = Modifier
@@ -208,6 +218,20 @@ fun NoteTakingRogerApp(
                 onBackupClick = { showBackupDialog = true }
             )
 
+            // Folders selection bar
+            FoldersFilterRow(
+                folders = allFolders,
+                allFolderNames = allFolderNames,
+                notes = allNotes.ifEmpty { notes },
+                activeFolder = activeFolder,
+                onSelectFolder = { viewModel.selectFolder(it) },
+                onCreateFolderClick = { showCreateFolderDialog = true },
+                onRenameFolderClick = { folderToRename = it },
+                onDeleteFolderClick = { viewModel.deleteFolder(it) },
+                themeConfig = themeConfig,
+                themeKey = themeKey
+            )
+
             // Search and sort row
             SearchAndSortRow(
                 searchQuery = searchQuery,
@@ -241,6 +265,7 @@ fun NoteTakingRogerApp(
                                 notes = notes,
                                 activeNoteId = activeNote?.id,
                                 onSelectNote = { viewModel.selectNote(it) },
+                                onMoveNote = { noteToMove = it },
                                 themeConfig = themeConfig,
                                 themeKey = themeKey,
                                 isCompact = true,
@@ -268,6 +293,7 @@ fun NoteTakingRogerApp(
                                     onDuplicate = { viewModel.duplicateActiveNote() },
                                     onDelete = { viewModel.deleteActiveNote() },
                                     onTogglePin = { viewModel.togglePinNote(activeNote!!.id) },
+                                    onMoveFolderClick = { noteToMove = activeNote },
                                     themeConfig = themeConfig,
                                     themeKey = themeKey,
                                     allTags = tags,
@@ -284,6 +310,7 @@ fun NoteTakingRogerApp(
                         notes = notes,
                         activeNoteId = activeNote?.id,
                         onSelectNote = { viewModel.selectNote(it) },
+                        onMoveNote = { noteToMove = it },
                         themeConfig = themeConfig,
                         themeKey = themeKey,
                         isCompact = false,
@@ -310,6 +337,7 @@ fun NoteTakingRogerApp(
                                     onDuplicate = { viewModel.duplicateActiveNote() },
                                     onDelete = { viewModel.deleteActiveNote() },
                                     onTogglePin = { viewModel.togglePinNote(activeNote!!.id) },
+                                    onMoveFolderClick = { noteToMove = activeNote },
                                     themeConfig = themeConfig,
                                     themeKey = themeKey,
                                     allTags = tags,
@@ -348,6 +376,38 @@ fun NoteTakingRogerApp(
                 viewModel = viewModel,
                 themeConfig = themeConfig,
                 onDismiss = { showBackupDialog = false }
+            )
+        }
+
+        // Dialog: Create Folder dialog
+        if (showCreateFolderDialog) {
+            CreateFolderDialog(
+                themeConfig = themeConfig,
+                onDismiss = { showCreateFolderDialog = false },
+                onCreate = { viewModel.createFolder(it) }
+            )
+        }
+
+        // Dialog: Rename Folder dialog
+        folderToRename?.let { oldName ->
+            RenameFolderDialog(
+                currentName = oldName,
+                themeConfig = themeConfig,
+                onDismiss = { folderToRename = null },
+                onRename = { newName -> viewModel.renameFolder(oldName, newName) }
+            )
+        }
+
+        // Dialog: Move Note to Folder dialog
+        noteToMove?.let { targetNote ->
+            MoveNoteDialog(
+                note = targetNote,
+                allFolderNames = allFolderNames,
+                themeConfig = themeConfig,
+                onDismiss = { noteToMove = null },
+                onMoveToFolder = { destFolder ->
+                    viewModel.moveNoteToFolder(targetNote.id, destFolder)
+                }
             )
         }
     }
@@ -922,6 +982,7 @@ fun NotesGrid(
     notes: List<Note>,
     activeNoteId: Long?,
     onSelectNote: (Long) -> Unit,
+    onMoveNote: (Note) -> Unit = {},
     themeConfig: NotesThemeConfig,
     themeKey: String,
     isCompact: Boolean,
@@ -973,6 +1034,7 @@ fun NotesGrid(
                     note = note,
                     isActive = isActive,
                     onClick = { onSelectNote(note.id) },
+                    onMoveNote = { onMoveNote(note) },
                     onTogglePin = onTogglePin,
                     themeConfig = themeConfig,
                     themeKey = themeKey
@@ -987,6 +1049,7 @@ fun NoteCard(
     note: Note,
     isActive: Boolean,
     onClick: () -> Unit,
+    onMoveNote: () -> Unit = {},
     onTogglePin: (Long) -> Unit,
     themeConfig: NotesThemeConfig,
     themeKey: String
@@ -1103,15 +1166,58 @@ fun NoteCard(
             modifier = Modifier.weight(1f)
         )
 
-        // Show horizontal scroll of individual tags assigned to this note
-        if (note.tags.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(6.dp))
+        // Bottom row: Folder chip + Move button + Tags
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .weight(1f)
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                // Folder indicator badge
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = if (themeKey == "detective" || themeKey == "puppy") {
+                                themeConfig.textSecondary.copy(alpha = 0.15f)
+                            } else {
+                                themeConfig.accent.copy(alpha = 0.18f)
+                            },
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Folder,
+                            contentDescription = "Folder",
+                            tint = if (themeKey == "detective" || themeKey == "puppy") themeConfig.textOnCard else themeConfig.accent,
+                            modifier = Modifier.size(10.dp)
+                        )
+                        Text(
+                            text = note.folder.ifEmpty { "General" },
+                            fontSize = 9.sp,
+                            fontFamily = themeConfig.fontFamily,
+                            color = if (themeKey == "detective" || themeKey == "puppy") {
+                                themeConfig.textOnCard
+                            } else {
+                                themeConfig.accent
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Note Tags
                 note.tags.forEach { tag ->
                     Box(
                         modifier = Modifier
@@ -1138,6 +1244,23 @@ fun NoteCard(
                         )
                     }
                 }
+            }
+
+            // Move Note Button on card
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .clickable { onMoveNote() }
+                    .testTag("move_note_card_btn_${note.id}"),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DriveFileMove,
+                    contentDescription = "Move note to folder",
+                    tint = (if (themeKey == "detective" || themeKey == "puppy") themeConfig.textOnCard else themeConfig.textSecondary).copy(alpha = 0.6f),
+                    modifier = Modifier.size(14.dp)
+                )
             }
         }
     }
@@ -1431,6 +1554,7 @@ fun NoteContentEditor(
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     onTogglePin: () -> Unit,
+    onMoveFolderClick: (() -> Unit)? = null,
     themeConfig: NotesThemeConfig,
     themeKey: String,
     allTags: List<String> = emptyList(),
@@ -2190,6 +2314,34 @@ fun NoteContentEditor(
                     )
                     Text(
                         text = "Duplicate Note",
+                        fontFamily = themeConfig.fontFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = themeConfig.textSecondary
+                    )
+                }
+            }
+
+            // (3) move note to folder
+            Box(
+                modifier = Modifier
+                    .background(themeConfig.textSecondary.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                    .clickable { onMoveFolderClick?.invoke() }
+                    .testTag("action_move_note_btn")
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DriveFileMove,
+                        contentDescription = "Move note to folder",
+                        tint = themeConfig.accent,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "Folder: ${note.folder.ifEmpty { "General" }}",
                         fontFamily = themeConfig.fontFamily,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -4751,4 +4903,613 @@ fun highlightCodeSyntaxForPdf(code: String): String {
     }
 
     return escaped
+}
+
+@Composable
+fun FoldersFilterRow(
+    folders: List<Folder>,
+    allFolderNames: List<String>,
+    notes: List<Note>,
+    activeFolder: String,
+    onSelectFolder: (String) -> Unit,
+    onCreateFolderClick: () -> Unit,
+    onRenameFolderClick: (String) -> Unit,
+    onDeleteFolderClick: (String) -> Unit,
+    themeConfig: NotesThemeConfig,
+    themeKey: String
+) {
+    val noteCounts = remember(notes, allFolderNames) {
+        val map = mutableMapOf<String, Int>()
+        notes.forEach { note ->
+            val f = note.folder.ifEmpty { "General" }
+            map[f] = (map[f] ?: 0) + 1
+        }
+        map
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Horizontal scroll list of folders
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // "All" chip
+            val isAllSelected = activeFolder.equals("All", ignoreCase = true)
+            FilterChip(
+                selected = isAllSelected,
+                onClick = { onSelectFolder("All") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = if (isAllSelected) Icons.Filled.FolderOpen else Icons.Default.Folder,
+                        contentDescription = "All Folders",
+                        modifier = Modifier.size(13.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        text = "All (${notes.size})",
+                        fontSize = 11.sp,
+                        fontFamily = themeConfig.fontFamily,
+                        fontWeight = if (isAllSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (themeKey == "puppy") Color.Black else Color.Unspecified
+                    )
+                },
+                shape = RoundedCornerShape(6.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = themeConfig.bgSecondary.copy(alpha = 0.4f),
+                    labelColor = themeConfig.textSecondary,
+                    selectedContainerColor = themeConfig.accent.copy(alpha = 0.25f),
+                    selectedLabelColor = if (themeKey == "puppy") Color.Black else themeConfig.accent
+                ),
+                border = BorderStroke(1.dp, if (isAllSelected) themeConfig.accent else themeConfig.border),
+                modifier = Modifier.testTag("folder_chip_all")
+            )
+
+            // Individual folders
+            allFolderNames.forEach { folderName ->
+                val isSelected = activeFolder.equals(folderName, ignoreCase = true)
+                val count = noteCounts[folderName] ?: 0
+                var showFolderMenu by remember { mutableStateOf(false) }
+
+                Box {
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onSelectFolder(folderName) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (isSelected) Icons.Filled.FolderOpen else Icons.Default.Folder,
+                                contentDescription = folderName,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            if (isSelected && !folderName.equals("General", ignoreCase = true)) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Folder options for $folderName",
+                                    modifier = Modifier
+                                        .size(13.dp)
+                                        .clickable { showFolderMenu = true }
+                                )
+                            }
+                        },
+                        label = {
+                            Text(
+                                text = "$folderName ($count)",
+                                fontSize = 11.sp,
+                                fontFamily = themeConfig.fontFamily,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (themeKey == "puppy") Color.Black else Color.Unspecified
+                            )
+                        },
+                        shape = RoundedCornerShape(6.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = themeConfig.bgSecondary.copy(alpha = 0.4f),
+                            labelColor = themeConfig.textSecondary,
+                            selectedContainerColor = themeConfig.accent.copy(alpha = 0.25f),
+                            selectedLabelColor = if (themeKey == "puppy") Color.Black else themeConfig.accent
+                        ),
+                        border = BorderStroke(1.dp, if (isSelected) themeConfig.accent else themeConfig.border),
+                        modifier = Modifier.testTag("folder_chip_$folderName")
+                    )
+
+                    DropdownMenu(
+                        expanded = showFolderMenu,
+                        onDismissRequest = { showFolderMenu = false },
+                        modifier = Modifier
+                            .background(themeConfig.bgSecondary)
+                            .border(1.dp, themeConfig.border)
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Rename folder",
+                                        tint = themeConfig.accent,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Rename '$folderName'",
+                                        fontFamily = themeConfig.fontFamily,
+                                        fontSize = 12.sp,
+                                        color = themeConfig.textPrimary
+                                    )
+                                }
+                            },
+                            onClick = {
+                                showFolderMenu = false
+                                onRenameFolderClick(folderName)
+                            },
+                            modifier = Modifier.testTag("folder_rename_item_$folderName")
+                        )
+                        if (!folderName.equals("General", ignoreCase = true)) {
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete folder",
+                                            tint = Color(0xFFC41E3A),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Delete Folder",
+                                            fontFamily = themeConfig.fontFamily,
+                                            fontSize = 12.sp,
+                                            color = Color(0xFFC41E3A)
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    showFolderMenu = false
+                                    onDeleteFolderClick(folderName)
+                                },
+                                modifier = Modifier.testTag("folder_delete_item_$folderName")
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // Create Folder Button
+        OutlinedButton(
+            onClick = onCreateFolderClick,
+            modifier = Modifier
+                .height(32.dp)
+                .testTag("create_folder_btn"),
+            shape = RoundedCornerShape(6.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            border = BorderStroke(1.dp, themeConfig.accent.copy(alpha = 0.6f)),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = themeConfig.accent.copy(alpha = 0.1f)
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Default.CreateNewFolder,
+                contentDescription = "Create new folder",
+                tint = themeConfig.accent,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "+ Folder",
+                fontSize = 11.sp,
+                fontFamily = themeConfig.fontFamily,
+                fontWeight = FontWeight.Bold,
+                color = themeConfig.accent
+            )
+        }
+    }
+}
+
+@Composable
+fun CreateFolderDialog(
+    themeConfig: NotesThemeConfig,
+    onDismiss: () -> Unit,
+    onCreate: (String) -> Unit
+) {
+    var folderName by remember { mutableStateOf("") }
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = themeConfig.bgSecondary),
+            border = BorderStroke(2.dp, themeConfig.accent),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CreateNewFolder,
+                            contentDescription = null,
+                            tint = themeConfig.accent
+                        )
+                        Text(
+                            text = "New Folder",
+                            fontFamily = themeConfig.fontFamily,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = themeConfig.accent
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = themeConfig.textSecondary
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Enter a name for the new folder to organize your notes:",
+                    fontFamily = themeConfig.fontFamily,
+                    fontSize = 12.sp,
+                    color = themeConfig.textSecondary
+                )
+
+                OutlinedTextField(
+                    value = folderName,
+                    onValueChange = { folderName = it },
+                    label = { Text("Folder Name", fontFamily = themeConfig.fontFamily, fontSize = 12.sp) },
+                    placeholder = { Text("e.g. Work, Rust Projects, Personal", fontFamily = themeConfig.fontFamily, fontSize = 12.sp) },
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        fontFamily = themeConfig.fontFamily,
+                        fontSize = 14.sp,
+                        color = themeConfig.textPrimary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("new_folder_name_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = themeConfig.accent,
+                        unfocusedBorderColor = themeConfig.border
+                    )
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", fontFamily = themeConfig.fontFamily, color = themeConfig.textSecondary)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (folderName.trim().isNotEmpty()) {
+                                onCreate(folderName.trim())
+                                onDismiss()
+                            }
+                        },
+                        enabled = folderName.trim().isNotEmpty(),
+                        colors = ButtonDefaults.buttonColors(containerColor = themeConfig.accent),
+                        modifier = Modifier.testTag("confirm_create_folder_btn")
+                    ) {
+                        Text("Create Folder", fontFamily = themeConfig.fontFamily, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RenameFolderDialog(
+    currentName: String,
+    themeConfig: NotesThemeConfig,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit
+) {
+    var folderName by remember { mutableStateOf(currentName) }
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = themeConfig.bgSecondary),
+            border = BorderStroke(2.dp, themeConfig.accent),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = null,
+                            tint = themeConfig.accent
+                        )
+                        Text(
+                            text = "Rename Folder",
+                            fontFamily = themeConfig.fontFamily,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = themeConfig.accent
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = themeConfig.textSecondary
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Rename folder '$currentName'. All notes inside this folder will automatically be updated.",
+                    fontFamily = themeConfig.fontFamily,
+                    fontSize = 12.sp,
+                    color = themeConfig.textSecondary
+                )
+
+                OutlinedTextField(
+                    value = folderName,
+                    onValueChange = { folderName = it },
+                    label = { Text("Folder Name", fontFamily = themeConfig.fontFamily, fontSize = 12.sp) },
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        fontFamily = themeConfig.fontFamily,
+                        fontSize = 14.sp,
+                        color = themeConfig.textPrimary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("rename_folder_name_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = themeConfig.accent,
+                        unfocusedBorderColor = themeConfig.border
+                    )
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", fontFamily = themeConfig.fontFamily, color = themeConfig.textSecondary)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (folderName.trim().isNotEmpty() && folderName.trim() != currentName) {
+                                onRename(folderName.trim())
+                                onDismiss()
+                            }
+                        },
+                        enabled = folderName.trim().isNotEmpty() && folderName.trim() != currentName,
+                        colors = ButtonDefaults.buttonColors(containerColor = themeConfig.accent),
+                        modifier = Modifier.testTag("confirm_rename_folder_btn")
+                    ) {
+                        Text("Save Changes", fontFamily = themeConfig.fontFamily, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MoveNoteDialog(
+    note: Note,
+    allFolderNames: List<String>,
+    themeConfig: NotesThemeConfig,
+    onDismiss: () -> Unit,
+    onMoveToFolder: (String) -> Unit
+) {
+    var newFolderNameInput by remember { mutableStateOf("") }
+    val currentFolder = note.folder.ifEmpty { "General" }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = themeConfig.bgSecondary),
+            border = BorderStroke(2.dp, themeConfig.accent),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DriveFileMove,
+                            contentDescription = null,
+                            tint = themeConfig.accent
+                        )
+                        Text(
+                            text = "Move Note",
+                            fontFamily = themeConfig.fontFamily,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = themeConfig.accent
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = themeConfig.textSecondary
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Select destination folder for \"${note.title.ifEmpty { "Untitled Log" }}\":",
+                    fontFamily = themeConfig.fontFamily,
+                    fontSize = 12.sp,
+                    color = themeConfig.textSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text = "Existing Folders:",
+                    fontFamily = themeConfig.fontFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = themeConfig.accent
+                )
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 180.dp)
+                        .testTag("move_folders_list"),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(allFolderNames) { fName ->
+                        val isCurrent = fName.equals(currentFolder, ignoreCase = true)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (isCurrent) themeConfig.accent.copy(alpha = 0.15f) else themeConfig.bgPrimary,
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isCurrent) themeConfig.accent else themeConfig.border,
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .clickable {
+                                    onMoveToFolder(fName)
+                                    onDismiss()
+                                }
+                                .testTag("select_move_folder_$fName")
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Folder,
+                                    contentDescription = null,
+                                    tint = if (isCurrent) themeConfig.accent else themeConfig.textSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = fName,
+                                    fontFamily = themeConfig.fontFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isCurrent) themeConfig.accent else themeConfig.textPrimary
+                                )
+                            }
+                            if (isCurrent) {
+                                Text(
+                                    text = "Current",
+                                    fontSize = 10.sp,
+                                    fontFamily = themeConfig.fontFamily,
+                                    color = themeConfig.accent,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = themeConfig.border.copy(alpha = 0.5f))
+
+                Text(
+                    text = "Or create & move to new folder:",
+                    fontFamily = themeConfig.fontFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = themeConfig.accent
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = newFolderNameInput,
+                        onValueChange = { newFolderNameInput = it },
+                        placeholder = { Text("New folder name", fontSize = 12.sp, fontFamily = themeConfig.fontFamily) },
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            fontFamily = themeConfig.fontFamily,
+                            fontSize = 12.sp,
+                            color = themeConfig.textPrimary
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("move_dialog_new_folder_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = themeConfig.accent,
+                            unfocusedBorderColor = themeConfig.border
+                        )
+                    )
+
+                    Button(
+                        onClick = {
+                            if (newFolderNameInput.trim().isNotEmpty()) {
+                                onMoveToFolder(newFolderNameInput.trim())
+                                onDismiss()
+                            }
+                        },
+                        enabled = newFolderNameInput.trim().isNotEmpty(),
+                        colors = ButtonDefaults.buttonColors(containerColor = themeConfig.accent),
+                        modifier = Modifier.testTag("move_dialog_create_move_btn")
+                    ) {
+                        Text("Move", fontFamily = themeConfig.fontFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
+        }
+    }
 }

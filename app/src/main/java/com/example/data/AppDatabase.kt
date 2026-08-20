@@ -3,11 +3,12 @@ package com.example.data
 import android.content.Context
 import androidx.room.*
 
-@Database(entities = [Note::class], version = 3, exportSchema = false)
+@Database(entities = [Note::class, Folder::class], version = 4, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun noteDao(): NoteDao
+    abstract fun folderDao(): FolderDao
 
     companion object {
         @Volatile

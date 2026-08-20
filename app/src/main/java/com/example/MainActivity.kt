@@ -2975,19 +2975,6 @@ fun NoteContentEditor(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Real-time statistics panel in note footer
-        RealtimeStatsPanel(
-            wordCount = wordCount,
-            charCount = charCount,
-            paragraphCount = paragraphCount,
-            readingTimeMin = readingTimeMin,
-            themeConfig = themeConfig,
-            themeKey = themeKey,
-            modifier = Modifier.testTag("realtime_stats_panel")
-        )
-
         Spacer(modifier = Modifier.height(8.dp))
 
         // Note timestamps
@@ -3003,6 +2990,35 @@ fun NoteContentEditor(
             )
             Text(
                 text = "Modified: ${note.updated}",
+                fontFamily = themeConfig.fontFamily,
+                fontSize = 10.sp,
+                color = themeConfig.textSecondary.copy(alpha = 0.45f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Real-time statistics: Words and chars info row below created and modified (grayed out)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("realtime_stats_panel"),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "$wordCount words • $charCount chars",
+                fontFamily = themeConfig.fontFamily,
+                fontSize = 10.sp,
+                color = themeConfig.textSecondary.copy(alpha = 0.45f)
+            )
+            val readingTimeStr = if (readingTimeMin <= 1) {
+                if (wordCount == 0) "0 min read" else "< 1 min read"
+            } else {
+                "$readingTimeMin min read"
+            }
+            Text(
+                text = if (paragraphCount > 0) "$paragraphCount paragraphs • $readingTimeStr" else readingTimeStr,
                 fontFamily = themeConfig.fontFamily,
                 fontSize = 10.sp,
                 color = themeConfig.textSecondary.copy(alpha = 0.45f)

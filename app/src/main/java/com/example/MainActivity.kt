@@ -2198,34 +2198,6 @@ fun NoteContentEditor(
                 }
             }
 
-            // (3) close note icon
-            Box(
-                modifier = Modifier
-                    .background(themeConfig.textSecondary.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
-                    .clickable { onClose() }
-                    .testTag("action_close_note_btn")
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close current note",
-                        tint = themeConfig.textSecondary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        text = "Close",
-                        fontFamily = themeConfig.fontFamily,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = themeConfig.textSecondary
-                    )
-                }
-            }
-
             // (4) delete note icon
             Box(
                 modifier = Modifier
